@@ -101,26 +101,31 @@ DALL-E 3 ücretli bir servistir; her görsel üretimi OpenAI hesabınızdan ücr
 - **Üç çıktı oranı** — Kare (1024x1024), yatay (1792x1024) ve dikey (1024x1792).
 - **Donmayan arayüz** — Üretim isteği ayrı bir thread'de çalışıyor, sonuç ana thread'e `after()` ile aktarılıyor.
 - **Otomatik kayıt** — Her görsel zaman damgalı bir dosya adıyla (`img_20251223_134728.png`) diske yazılıyor; ayrıca "Farklı Kaydet" ile istenen konuma kaydedilebiliyor.
-- **Kalıcı geçmiş paneli** — Üretilen görsellerin küçük önizlemeleri sağ panelde listeleniyor, tıklayınca tam boyutta geri yükleniyor. Uygulama yeniden açıldığında kayıt klasöründeki son 20 görsel şeride geri yükleniyor; yükleme tek tek yapıldığı için açılış donmuyor.
-- **İptal edilebilir üretim** — Üretim sürerken buton "İPTAL"e dönüşüyor. İptal edilen isteğin geç gelen sonucu artan bir üretim numarasıyla geçersiz sayılıyor: ne diske yazılıyor ne de ekrana geliyor.
+- **Kalıcı geçmiş paneli** — Üretilen görsellerin küçük önizlemeleri sağ panelde listeleniyor, tıklayınca tam boyutta geri yükleniyor. Uygulama yeniden açıldığında kayıt klasöründeki son 20 görsel şeride geri yükleniyor; yükleme tek tek yapıldığı için açılış donmuyor. Yalnızca uygulamanın kendi kayıt deseni (`img_YYYYAAGG_SSDDSS.png`) taranır, klasöre dışarıdan konan görseller şeride karışmaz.
+- **İptal edilebilir üretim** — Üretim sürerken buton "İPTAL"e dönüşüyor. İki katmanlı çalışıyor: indirme sürüyorsa gövde parça parça okunduğu için indirme anında yarıda kesiliyor; sonuç yine de gelirse artan bir üretim numarası onu geçersiz kılıyor, görsel ne diske yazılıyor ne ekrana geliyor.
 - **Fikir ver** — Hazır örnek promptlardan rastgele biri metin kutusuna yazılıyor.
 - **Genişletilebilir üretici katmanı** — Yeni bir sağlayıcı eklemek için `ImageGeneratorStrategy` arayüzünü uygulayan bir sınıf yazmak yeterli.
 
 ## Testler
 
-`generators.py` için ağa çıkmayan, arayüz açmayan 18 birim testi var. HTTP katmanı sahte nesnelerle değiştiriliyor, bu yüzden API anahtarı olmadan da çalışıyorlar:
+Toplam 49 test, iki dosyada. Hiçbiri ağa çıkmaz ve API anahtarı gerektirmez; HTTP katmanı sahte nesnelerle değiştirilir.
 
 ```bash
 python -m unittest -v
 ```
 
+| Dosya | Kapsam |
+|---|---|
+| `test_generators.py` | Üretici katmanı: istek gövdesi, zaman aşımları, hata biçimleri, iptal davranışı, boyut parametresi |
+| `test_app.py` | Arayüz: geçmiş yükleme ve filtreleme, küçük resim oranı, prompt doğrulama, iptal akışı, kayıt |
+
+`test_app.py` gerçek bir pencere açtığı için ekran gerektirir; başsız bir ortamda (örneğin ekransız bir CI sunucusu) bu testler otomatik olarak atlanır. Her test kendi geçici kayıt klasöründe çalışır, projedeki `fotolar` klasörüne dokunmaz.
+
 ## Bilinen eksikler
 
-- **Hugging Face yolu uçtan uca denenmedi.** Kapanmış olan `api-inference.huggingface.co` adresi güncel `router.huggingface.co` adresiyle değiştirildi ve yeni adresin ayakta olduğu doğrulandı: DNS'te çözülüyor ve kimlik doğrulama istiyor. Ancak elde bir Hugging Face anahtarı olmadığı için gerçek bir üretim denenemedi. Adres ve model `HF_API_URL` / `HF_MODEL_ID` ile değiştirilebilir. Test edilmiş birincil yol OpenAI'dır.
-- **Hugging Face'te çıktı oranı seçilemiyor.** Bu API çözünürlük parametresi almadığından, model Hugging Face'e alındığında boyut menüsü kapanıyor ve görsel modelin kendi varsayılan boyutunda üretiliyor.
-- **İptal, süren isteği ağ seviyesinde durdurmuyor.** Arayüz anında serbest kalıyor ve gelen sonuç yok sayılıyor — görsel ne diske yazılıyor ne ekrana geliyor — ama istek arka planda tamamlanıyor. Bunun pratik sonucu şu: iptal ettiğiniz bir DALL-E 3 üretimi OpenAI tarafında yine de ücretlendirilir. Yanıt hiç gelmezse istek 180 saniyede zaman aşımına uğrar.
-- **Geçmiş şeridi kayıt klasörünün tamamına bakıyor.** Değiştirilme tarihine göre en yeni 20 PNG yükleniyor, dolayısıyla klasöre dışarıdan kopyalanan PNG'ler de geçmişte görünür.
-- **Arayüz için otomatik test yok.** Birim testleri üretici katmanını kapsıyor; arayüz elle test edildi.
+- **Hugging Face yolu uçtan uca denenmedi.** Kapanmış olan `api-inference.huggingface.co` adresi güncel `router.huggingface.co` adresiyle değiştirildi ve yeni adresin ayakta olduğu doğrulandı: DNS'te çözülüyor ve kimlik doğrulama istiyor. İstek gövdesine çözünürlük de ekleniyor. Ancak elde bir Hugging Face anahtarı olmadığı için gerçek bir üretim denenemedi; sağlayıcının `width`/`height` alanlarını dikkate alıp almadığı doğrulanmadı. Adres ve model `HF_API_URL` / `HF_MODEL_ID` ile değiştirilebilir. Test edilmiş birincil yol OpenAI'dır.
+- **İptal, yanıt beklenirken ağ seviyesinde kesilemiyor.** İptalin indirme aşamasını gerçekten yarıda kestiği ölçüldü: yavaş yanıt veren yerel bir sunucuya karşı bağlantı, bayrak kaldırıldıktan ~1,6 saniye sonra bırakıldı. Ancak istek henüz *yanıt beklerken* iptal edilirse bu bekleme kesilemiyor — `requests` ile yapılan bloklayıcı bir çağrı başka bir thread'den güvenilir biçimde durdurulamıyor (`Session.close()` denendi, Windows'ta bloke soketi çözmedi). Bu durumda arayüz anında serbest kalıyor ve sonuç geldiğinde yok sayılıyor, ama istek arka planda sürüyor. Pratik sonucu: iptal ettiğiniz bir DALL-E 3 üretimi OpenAI tarafında yine de ücretlendirilir. Yanıt hiç gelmezse istek 180 saniyede zaman aşımına uğrar.
+- **Geçmişten silme yok.** Şeritteki bir görseli arayüzden kaldırmak mümkün değil; dosyayı kayıt klasöründen elle silmek gerekiyor.
 
 ## Lisans
 

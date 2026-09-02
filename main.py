@@ -3,13 +3,14 @@ from tkinter import messagebox, filedialog
 import threading
 from PIL import Image
 import os
+import re
 import datetime
 import random
 from dotenv import load_dotenv
 
 
 try:
-    from generators import HuggingFaceGenerator, OpenAIGenerator
+    from generators import GenerationCancelled, HuggingFaceGenerator, OpenAIGenerator
 except ImportError as e:
     print(f"KRİTİK HATA: generators.py dosyası bulunamadı! {e}")
     exit()
@@ -23,6 +24,10 @@ MAX_PROMPT_LENGTH = 4000
 
 # Açılışta geçmiş şeridine geri yüklenecek en fazla görsel sayısı.
 HISTORY_LOAD_LIMIT = 20
+
+# Geçmişe yalnızca uygulamanın kendi kaydettiği dosyalar alınıyor; klasöre
+# dışarıdan kopyalanan görseller şeride karışmasın.
+HISTORY_FILE_PATTERN = re.compile(r"^img_\d{8}_\d{6}\.png$", re.IGNORECASE)
 
 class AIArtApp(ctk.CTk):
     def __init__(self):
@@ -45,6 +50,7 @@ class AIArtApp(ctk.CTk):
         # Her üretime artan bir numara veriliyor; iptal edilen isteğin geç gelen
         # sonucu bu numarayı tutmadığı için yok sayılıyor.
         self._generation_id = 0
+        self._cancel_event = threading.Event()
         self._pending_history = []
 
         self.styles = {
@@ -130,10 +136,8 @@ class AIArtApp(ctk.CTk):
     def _change_model(self, choice):
         if choice == "Hugging Face":
             self.current_generator = HuggingFaceGenerator()
-            self.size_menu.configure(state="disabled")
         else:
             self.current_generator = OpenAIGenerator()
-            self.size_menu.configure(state="normal")
 
     def _random_prompt(self):
         prompt = random.choice(self.random_prompts)
@@ -162,16 +166,21 @@ class AIArtApp(ctk.CTk):
 
         self._generation_id += 1
         gen_id = self._generation_id
+        self._cancel_event = threading.Event()
 
         self.generate_btn.configure(text="İPTAL", fg_color="#C0392B", hover_color="#A93226", command=self._cancel)
         self.status_lbl.configure(text="Üretiliyor...", text_color="orange")
 
-        threading.Thread(target=self._generate, args=(final_prompt, selected_size, gen_id), daemon=True).start()
+        threading.Thread(target=self._generate,
+                         args=(final_prompt, selected_size, gen_id, self._cancel_event),
+                         daemon=True).start()
 
     def _cancel(self):
-        # Süren HTTP isteği yarıda kesilemiyor; numarayı ilerletip gelen sonucu
-        # geçersiz sayıyoruz, böylece görsel ne kaydediliyor ne de gösteriliyor.
+        # Bayrak, üretici thread'ine indirmeyi yarıda bırakmasını söylüyor.
+        # Numara ise sonuç yine de gelirse onu geçersiz kılıyor.
+        self._cancel_event.set()
         self._generation_id += 1
+
         self._reset_generate_button()
         self.status_lbl.configure(text="İptal edildi", text_color="gray")
 
@@ -180,11 +189,14 @@ class AIArtApp(ctk.CTk):
                                     hover_color=self._btn_default_hover,
                                     command=self._start_thread)
 
-    def _generate(self, prompt, size, gen_id):
+    def _generate(self, prompt, size, gen_id, cancel_event):
         try:
             if not self.current_generator: self.current_generator = OpenAIGenerator()
-            image = self.current_generator.generate(prompt, size)
+            image = self.current_generator.generate(prompt, size, cancel_event)
             self.after(0, lambda: self._success(image, gen_id))
+        except GenerationCancelled:
+            # Kullanıcının kendi isteği; arayüz zaten sıfırlandı, hata gösterme.
+            pass
         except Exception as e:
             mesaj = str(e)
             self.after(0, lambda: self._error(mesaj, gen_id))
@@ -232,7 +244,7 @@ class AIArtApp(ctk.CTk):
             dosyalar = [
                 os.path.join(self.auto_save_path, ad)
                 for ad in os.listdir(self.auto_save_path)
-                if ad.lower().endswith(".png")
+                if HISTORY_FILE_PATTERN.match(ad)
             ]
         except OSError as e:
             print(f"Geçmiş klasörü okunamadı: {e}")
