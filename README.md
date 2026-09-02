@@ -19,11 +19,7 @@ Solda model, stil ve boyut seçimi; ortada üretilen görselin önizlemesi; sağ
 
 *Sinematik Sahne* stili, 1536x1024 geniş format — `gpt-image-1` ile üretildi.
 
-![Çizim](ornekler/04-cizim-fil-karinca.png)
-
-*Anime / Çizim* stili, 1024x1024.
-
-![Hugging Face](ornekler/05-huggingface-agac-kasaba.png)
+![Hugging Face](ornekler/04-huggingface-agac-kasaba.png)
 
 Aynı *Sinematik Sahne* stili, bu kez **Hugging Face** sağlayıcısıyla (Stable Diffusion 3 Medium) — sağlayıcı değişse de stil talimatı aynı şekilde uygulanıyor.
 
@@ -158,4 +154,4 @@ Her iki yol da canlı olarak test edildi ve görsel üretmesi doğrulandı.
 
 ## Lisans
 
-MIT
+MIT — ayrıntılar için [LICENSE](LICENSE) dosyasına bakın.
