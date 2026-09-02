@@ -100,18 +100,25 @@ DALL-E 3 ücretli bir servistir; her görsel üretimi OpenAI hesabınızdan ücr
 - **Üç çıktı oranı** — Kare (1024x1024), yatay (1792x1024) ve dikey (1024x1792).
 - **Donmayan arayüz** — Üretim isteği ayrı bir thread'de çalışıyor, sonuç ana thread'e `after()` ile aktarılıyor.
 - **Otomatik kayıt** — Her görsel zaman damgalı bir dosya adıyla (`img_20251223_134728.png`) diske yazılıyor; ayrıca "Farklı Kaydet" ile istenen konuma kaydedilebiliyor.
-- **Geçmiş paneli** — Oturumda üretilen görsellerin küçük önizlemeleri sağ panelde listeleniyor, tıklayınca tam boyutta geri yükleniyor.
+- **Kalıcı geçmiş paneli** — Üretilen görsellerin küçük önizlemeleri sağ panelde listeleniyor, tıklayınca tam boyutta geri yükleniyor. Uygulama yeniden açıldığında kayıt klasöründeki son 20 görsel şeride geri yükleniyor; yükleme tek tek yapıldığı için açılış donmuyor.
+- **İptal edilebilir üretim** — Üretim sürerken buton "İPTAL"e dönüşüyor. İptal edilen isteğin geç gelen sonucu artan bir üretim numarasıyla geçersiz sayılıyor: ne diske yazılıyor ne de ekrana geliyor.
 - **Fikir ver** — Hazır örnek promptlardan rastgele biri metin kutusuna yazılıyor.
 - **Genişletilebilir üretici katmanı** — Yeni bir sağlayıcı eklemek için `ImageGeneratorStrategy` arayüzünü uygulayan bir sınıf yazmak yeterli.
 
+## Testler
+
+`generators.py` için ağa çıkmayan, arayüz açmayan 18 birim testi var. HTTP katmanı sahte nesnelerle değiştiriliyor, bu yüzden API anahtarı olmadan da çalışıyorlar:
+
+```bash
+python -m unittest -v
+```
+
 ## Bilinen eksikler
 
-- **Hugging Face desteği çalışmıyor.** Kod, Hugging Face'in eski `api-inference.huggingface.co` uç noktasını kullanıyor. Bu servis FLUX gibi modeller için kullanımdan kaldırıldı ve istekler hata dönüyor. Sınıf, Strategy deseninin ikinci uygulaması olarak duruyor; düzeltmek için uç noktanın güncel Inference Providers adresiyle değiştirilmesi gerekiyor. Adres `HF_API_URL` ortam değişkeniyle geçersiz kılınabilir.
-- **Geçmiş sadece oturum boyunca yaşıyor.** Uygulama kapatılıp açıldığında sağ paneldeki şerit boş başlıyor; daha önce üretilmiş görseller diskte duruyor ama arayüze geri yüklenmiyor.
-- **Üretim iptal edilemiyor.** İstek başladıktan sonra bekleme dışında bir seçenek yok; zaman aşımı 180 saniye.
-- **Geçmiş küçük resimleri sabit 100x100 kutuya sığdırılıyor**, bu yüzden kare olmayan görseller önizlemede hafifçe deforme görünüyor.
-- **Prompt uzunluğu kontrol edilmiyor.** DALL-E 3'ün 4000 karakter sınırı aşılırsa hata API'den dönüyor, önceden uyarı verilmiyor.
-- **Otomatik test yok.** Proje elle test edildi; birim testi bulunmuyor.
+- **Hugging Face yolu doğrulanmadı.** Uç nokta, kapanmış olan `api-inference.huggingface.co` yerine güncel `router.huggingface.co` adresiyle değiştirildi; adresin ayakta olduğu doğrulandı (kimlik doğrulaması istiyor). Ancak elimde Hugging Face anahtarı olmadığı için uçtan uca bir üretim denenmedi. Adres ve model `HF_API_URL` / `HF_MODEL_ID` ile değiştirilebilir. OpenAI yolu birincil ve test edilmiş yoldur.
+- **İptal, süren HTTP isteğini durdurmuyor.** İstek arka planda tamamlanıyor, sonucu yok sayılıyor. Kullanıcı açısından fark etmiyor ama iptal edilen bir DALL-E 3 üretimi yine de ücretlendirilir.
+- **Arayüz için otomatik test yok.** Birim testleri üretici katmanını kapsıyor; arayüz elle test edildi.
+- **Geçmiş şeridi kayıt klasörünün tamamını okuyor.** Klasöre dışarıdan konan PNG'ler de geçmişte görünür.
 
 ## Lisans
 

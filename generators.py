@@ -23,7 +23,7 @@ class HuggingFaceGenerator(ImageGeneratorStrategy):
     def __init__(self, model_id: str = None):
         self.api_key = os.getenv("HF_API_KEY")
         model_id = model_id or os.getenv("HF_MODEL_ID", "black-forest-labs/FLUX.1-dev")
-        base_url = os.getenv("HF_API_URL", "https://api-inference.huggingface.co/models")
+        base_url = os.getenv("HF_API_URL", "https://router.huggingface.co/hf-inference/models")
         self.api_url = f"{base_url.rstrip('/')}/{model_id}"
 
     def generate(self, prompt: str, size: str = "1024x1024") -> Image.Image:
@@ -100,10 +100,16 @@ class OpenAIGenerator(ImageGeneratorStrategy):
 
 def _extract_error(response: requests.Response) -> str:
     """API hata govdesinden okunabilir bir mesaj cikarir."""
+    govde = (response.text or "").strip()
+
+    # Kimlik dogrulama hatalarinda HF/OpenAI JSON yerine HTML giris sayfasi donebiliyor.
+    if govde[:9].lower().startswith(("<!doctype", "<html")):
+        return f"HTTP {response.status_code} - sunucu JSON yerine HTML dondu (anahtar gecersiz veya eksik olabilir)"
+
     try:
         payload = response.json()
     except (ValueError, json.JSONDecodeError):
-        return response.text[:200] or "Bilinmeyen hata"
+        return govde[:200] or "Bilinmeyen hata"
 
     if isinstance(payload, dict):
         error = payload.get("error")

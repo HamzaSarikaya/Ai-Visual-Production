@@ -18,6 +18,12 @@ load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# DALL-E 3'ün kabul ettiği en uzun açıklama.
+MAX_PROMPT_LENGTH = 4000
+
+# Açılışta geçmiş şeridine geri yüklenecek en fazla görsel sayısı.
+HISTORY_LOAD_LIMIT = 20
+
 class AIArtApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -35,6 +41,11 @@ class AIArtApp(ctk.CTk):
 
         self.current_generator = None
         self.generated_image = None
+
+        # Her üretime artan bir numara veriliyor; iptal edilen isteğin geç gelen
+        # sonucu bu numarayı tutmadığı için yok sayılıyor.
+        self._generation_id = 0
+        self._pending_history = []
 
         self.styles = {
             "Standart": "",
@@ -62,6 +73,9 @@ class AIArtApp(ctk.CTk):
         self._setup_ui()
         self.current_generator = OpenAIGenerator()
 
+        # Pencere görünür olduktan sonra başlasın ki açılış donuk hissettirmesin.
+        self.after(200, self._load_existing_history)
+
     def _setup_ui(self):
         self.sidebar = ctk.CTkFrame(self, width=250, corner_radius=0)
         self.sidebar.pack(side="left", fill="y")
@@ -85,9 +99,13 @@ class AIArtApp(ctk.CTk):
         self.generate_btn = ctk.CTkButton(self.sidebar, text="GÖRSEL OLUŞTUR", command=self._start_thread, height=50, font=ctk.CTkFont(weight="bold"), fg_color="#1f6aa5")
         self.generate_btn.pack(padx=20, pady=30)
 
+        # İptal modunda rengi değiştirip geri döneceğimiz için varsayılanları saklıyoruz.
+        self._btn_default_fg = self.generate_btn.cget("fg_color")
+        self._btn_default_hover = self.generate_btn.cget("hover_color")
+
         self.save_btn = ctk.CTkButton(self.sidebar, text="Farklı Kaydet...", command=self._save_as, state="disabled")
         self.save_btn.pack(padx=20, pady=10)
-        
+
         self.status_lbl = ctk.CTkLabel(self.sidebar, text="Hazır", text_color="gray")
         self.status_lbl.pack(side="bottom", pady=20)
 
@@ -123,46 +141,74 @@ class AIArtApp(ctk.CTk):
         self.prompt_entry.insert(0, prompt)
 
     def _start_thread(self):
-        base_prompt = self.prompt_entry.get()
+        base_prompt = self.prompt_entry.get().strip()
         if not base_prompt:
             messagebox.showwarning("Uyarı", "Lütfen bir şeyler yazın.")
             return
-        
+
         style_suffix = self.styles.get(self.style_menu.get(), "")
         final_prompt = base_prompt + style_suffix
-        
+
+        if len(final_prompt) > MAX_PROMPT_LENGTH:
+            fazla = len(final_prompt) - MAX_PROMPT_LENGTH
+            messagebox.showwarning(
+                "Uyarı",
+                f"Açıklama çok uzun. Stil eki dahil {len(final_prompt)} karakter, "
+                f"sınır {MAX_PROMPT_LENGTH}. {fazla} karakter kısaltın."
+            )
+            return
+
         selected_size = self.sizes.get(self.size_menu.get(), "1024x1024")
 
-        self.generate_btn.configure(state="disabled", text="İşleniyor...")
-        self.status_lbl.configure(text="Üretiliyor...", text_color="orange")
-        
-        threading.Thread(target=self._generate, args=(final_prompt, selected_size), daemon=True).start()
+        self._generation_id += 1
+        gen_id = self._generation_id
 
-    def _generate(self, prompt, size):
+        self.generate_btn.configure(text="İPTAL", fg_color="#C0392B", hover_color="#A93226", command=self._cancel)
+        self.status_lbl.configure(text="Üretiliyor...", text_color="orange")
+
+        threading.Thread(target=self._generate, args=(final_prompt, selected_size, gen_id), daemon=True).start()
+
+    def _cancel(self):
+        # Süren HTTP isteği yarıda kesilemiyor; numarayı ilerletip gelen sonucu
+        # geçersiz sayıyoruz, böylece görsel ne kaydediliyor ne de gösteriliyor.
+        self._generation_id += 1
+        self._reset_generate_button()
+        self.status_lbl.configure(text="İptal edildi", text_color="gray")
+
+    def _reset_generate_button(self, text="GÖRSEL OLUŞTUR"):
+        self.generate_btn.configure(text=text, fg_color=self._btn_default_fg,
+                                    hover_color=self._btn_default_hover,
+                                    command=self._start_thread)
+
+    def _generate(self, prompt, size, gen_id):
         try:
             if not self.current_generator: self.current_generator = OpenAIGenerator()
             image = self.current_generator.generate(prompt, size)
-            self.generated_image = image
-            self.after(0, self._success)
+            self.after(0, lambda: self._success(image, gen_id))
         except Exception as e:
-            self.after(0, lambda: self._error(str(e)))
+            mesaj = str(e)
+            self.after(0, lambda: self._error(mesaj, gen_id))
 
-    def _success(self):
+    def _success(self, image, gen_id):
+        if gen_id != self._generation_id:
+            return
+
+        self.generated_image = image
         try:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"img_{timestamp}.png"
             full_path = os.path.join(self.auto_save_path, filename)
-            self.generated_image.save(full_path)
+            image.save(full_path)
             print(f"Otomatik kaydedildi: {full_path}")
-            
-            self._add_to_history_ui(full_path, self.generated_image)
+
+            self._add_to_history_ui(full_path, image)
 
         except Exception as e:
             print(f"Oto-kayıt hatası: {e}")
 
-        self._display_image(self.generated_image)
-        
-        self.generate_btn.configure(state="normal", text="GÖRSEL OLUŞTUR")
+        self._display_image(image)
+
+        self._reset_generate_button()
         self.save_btn.configure(state="normal")
         self.status_lbl.configure(text="Tamamlandı", text_color="green")
 
@@ -180,16 +226,55 @@ class AIArtApp(ctk.CTk):
         ctk_img = ctk.CTkImage(img_obj, size=new_size)
         self.image_display.configure(image=ctk_img, text="")
 
+    def _load_existing_history(self):
+        """Önceki oturumlarda üretilmiş görselleri geçmiş şeridine geri yükler."""
+        try:
+            dosyalar = [
+                os.path.join(self.auto_save_path, ad)
+                for ad in os.listdir(self.auto_save_path)
+                if ad.lower().endswith(".png")
+            ]
+        except OSError as e:
+            print(f"Geçmiş klasörü okunamadı: {e}")
+            return
+
+        def _zaman(yol):
+            try:
+                return os.path.getmtime(yol)
+            except OSError:
+                return 0.0
+
+        # En yeniler şeridin altında kalsın diye eskiden yeniye sıralıyoruz.
+        dosyalar.sort(key=_zaman)
+        self._pending_history = dosyalar[-HISTORY_LOAD_LIMIT:]
+        self._process_history_queue()
+
+    def _process_history_queue(self):
+        """Görselleri teker teker açar; hepsini bir anda açmak arayüzü kilitliyor."""
+        if not self._pending_history:
+            return
+
+        yol = self._pending_history.pop(0)
+        try:
+            with Image.open(yol) as img:
+                self._add_to_history_ui(yol, img)
+        except Exception as e:
+            print(f"Geçmiş görseli atlandı ({os.path.basename(yol)}): {e}")
+
+        self.after(10, self._process_history_queue)
+
     def _add_to_history_ui(self, file_path, img_obj):
         try:
             thumb = img_obj.copy()
             thumb.thumbnail((100, 100))
-            ctk_thumb = ctk.CTkImage(thumb, size=(100, 100))
-            
+            # Gerçek küçük resim boyutunu veriyoruz; sabit kare vermek kare
+            # olmayan görselleri eziyordu.
+            ctk_thumb = ctk.CTkImage(thumb, size=thumb.size)
+
             btn = ctk.CTkButton(self.history_frame, text="", image=ctk_thumb, width=110, height=110,
                                 command=lambda p=file_path: self._load_from_history(p))
             btn.pack(pady=5)
-            
+
         except Exception as e:
             print(f"Geçmiş ekleme hatası: {e}")
 
@@ -198,13 +283,17 @@ class AIArtApp(ctk.CTk):
             img = Image.open(file_path)
             self.generated_image = img
             self._display_image(img)
+            self.save_btn.configure(state="normal")
             self.status_lbl.configure(text="Geçmişten Yüklendi", text_color="cyan")
         except Exception as e:
             messagebox.showerror("Hata", f"Resim açılamadı: {e}")
 
-    def _error(self, msg):
+    def _error(self, msg, gen_id):
+        if gen_id != self._generation_id:
+            return
+
         messagebox.showerror("Hata", msg)
-        self.generate_btn.configure(state="normal", text="TEKRAR DENE")
+        self._reset_generate_button("TEKRAR DENE")
         self.status_lbl.configure(text="Hata", text_color="red")
 
     def _save_as(self):
