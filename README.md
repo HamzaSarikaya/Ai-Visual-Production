@@ -111,11 +111,12 @@ OpenAI görsel üretimi ücretlidir; her görsel hesabınızdan ücretlendirilir
 - **Otomatik kayıt** — Her görsel zaman damgalı bir dosya adıyla (`img_20260101_120000.png`) diske yazılıyor; ayrıca "Farklı Kaydet" ile istenen konuma kaydedilebiliyor.
 - **Kalıcı geçmiş paneli** — Üretilen görsellerin küçük önizlemeleri sağ panelde listeleniyor, tıklayınca tam boyutta geri yükleniyor. Uygulama yeniden açıldığında kayıt klasöründeki son 20 görsel şeride geri yükleniyor; yükleme tek tek yapıldığı için açılış donmuyor. Yalnızca uygulamanın kendi kayıt deseni taranır, klasöre dışarıdan konan görseller şeride karışmaz.
 - **İptal edilebilir üretim** — Üretim sürerken buton "İPTAL"e dönüşüyor. İki katmanlı çalışıyor: indirme sürüyorsa gövde parça parça okunduğu için indirme anında yarıda kesiliyor; sonuç yine de gelirse artan bir üretim numarası onu geçersiz kılıyor, görsel ne diske yazılıyor ne ekrana geliyor.
+- **Geçmişten silme** — Şeritteki bir görsele sağ tıklayıp silinebiliyor. Dosya diskten kalıcı olarak kaldırıldığı için önce onay soruluyor; silinen görsel o an ekrandaysa önizleme de temizleniyor. Dosya kilitliyse veya silinemezse hata gösterilip şeritteki yerinde bırakılıyor.
 - **Sağlayıcı ayarları koda gömülü değil** — Model, kalite ve uç nokta adresi ortam değişkeninden okunuyor; sağlayıcı bir modeli kaldırdığında kod değiştirmek gerekmiyor.
 
 ## Testler
 
-Toplam 61 test, iki dosyada. Hiçbiri ağa çıkmaz ve API anahtarı gerektirmez; HTTP katmanı sahte nesnelerle değiştirilir.
+Toplam 70 test, iki dosyada. Hiçbiri ağa çıkmaz ve API anahtarı gerektirmez; HTTP katmanı sahte nesnelerle değiştirilir.
 
 ```bash
 python -m unittest -v
@@ -124,7 +125,7 @@ python -m unittest -v
 | Dosya | Kapsam |
 |---|---|
 | `test_generators.py` | Üretici katmanı: istek gövdesi, zaman aşımları, base64 ve URL yanıt biçimleri, hata biçimleri, iptal davranışı, boyut parametresi |
-| `test_app.py` | Arayüz: geçmiş yükleme ve filtreleme, küçük resim oranı, prompt doğrulama, iptal akışı, kayıt |
+| `test_app.py` | Arayüz: geçmiş yükleme ve filtreleme, silme akışı ve sağ tık bağlantısı, küçük resim oranı, prompt oluşturma ve doğrulama, iptal akışı, kayıt |
 
 `test_app.py` gerçek bir pencere açtığı için ekran gerektirir; başsız bir ortamda (örneğin ekransız bir CI sunucusu) bu testler otomatik olarak atlanır. Her test kendi geçici kayıt klasöründe çalışır, projedeki `fotolar` klasörüne dokunmaz.
 
@@ -153,7 +154,7 @@ Her iki yol da canlı olarak test edildi ve görsel üretmesi doğrulandı.
 - **İptal, yanıt beklenirken ağ seviyesinde kesilemiyor.** İptalin indirme aşamasını gerçekten yarıda kestiği ölçüldü: yavaş yanıt veren yerel bir sunucuya karşı bağlantı, bayrak kaldırıldıktan ~1,6 saniye sonra bırakıldı. Ancak istek henüz *yanıt beklerken* iptal edilirse bu bekleme kesilemiyor — `requests` ile yapılan bloklayıcı bir çağrı başka bir thread'den güvenilir biçimde durdurulamıyor (`Session.close()` denendi, Windows'ta bloke soketi çözmedi). Bu durumda arayüz anında serbest kalıyor ve sonuç geldiğinde yok sayılıyor, ama istek arka planda sürüyor. Pratik sonucu: iptal ettiğiniz bir üretim sağlayıcı tarafında yine de ücretlendirilir. Yanıt hiç gelmezse istek 180 saniyede zaman aşımına uğrar.
 - **Hugging Face sağlayıcısı Türkçe anlamıyor.** Stable Diffusion 3'ün metin kodlayıcısı Türkçe eğitilmediği için Türkçe bir açıklama sahneyle ilgisiz görsel üretiyor; aynı sahne İngilizce yazıldığında doğru sonuç geliyor. Bu ikisi yan yana test edildi. Arayüz, Hugging Face seçildiğinde model menüsünün altında uyarı gösteriyor. OpenAI sağlayıcısı Türkçe açıklamaları sorunsuz anlıyor.
 - **Hugging Face tarafında yalnızca `hf-inference` sağlayıcısı destekleniyor.** FLUX gibi popüler modeller bugün `fal-ai`, `replicate` veya `wavespeed` üzerinden sunuluyor ve bu sağlayıcıların istek biçimi farklı. Adres `HF_API_URL` ile değiştirilebilir ama gövde biçimi uyarlanmadan çalışmaz.
-- **Geçmişten silme yok.** Şeritteki bir görseli arayüzden kaldırmak mümkün değil; dosyayı kayıt klasöründen elle silmek gerekiyor.
+- **Silinen görsel geri alınamıyor.** Silme işlemi dosyayı doğrudan kaldırıyor, geri dönüşüm kutusuna taşımıyor. Onay kutusu bunu açıkça söylüyor ama "geri al" seçeneği yok.
 
 ## Lisans
 

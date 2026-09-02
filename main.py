@@ -1,4 +1,5 @@
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import messagebox, filedialog
 import threading
 from PIL import Image
@@ -49,6 +50,8 @@ class AIArtApp(ctk.CTk):
 
         self.current_generator = None
         self.generated_image = None
+        # Ekranda duran görselin dosya yolu; silinirse önizlemeyi temizlemek için.
+        self._displayed_path = None
 
         # Her üretime artan bir numara veriliyor; iptal edilen isteğin geç gelen
         # sonucu bu numarayı tutmadığı için yok sayılıyor.
@@ -161,7 +164,8 @@ class AIArtApp(ctk.CTk):
         self.status_lbl = ctk.CTkLabel(self.sidebar, text="Hazır", text_color="gray")
         self.status_lbl.pack(side="bottom", pady=20)
 
-        self.history_frame = ctk.CTkScrollableFrame(self, width=150, label_text="Geçmiş")
+        self.history_frame = ctk.CTkScrollableFrame(self, width=150,
+                                                    label_text="Geçmiş  (sağ tık: sil)")
         self.history_frame.pack(side="right", fill="y", padx=10, pady=10)
 
         self.main_area = ctk.CTkFrame(self, fg_color="transparent")
@@ -267,6 +271,7 @@ class AIArtApp(ctk.CTk):
             return
 
         self.generated_image = image
+        self._displayed_path = None
         try:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"img_{timestamp}.png"
@@ -274,6 +279,7 @@ class AIArtApp(ctk.CTk):
             image.save(full_path)
             print(f"Otomatik kaydedildi: {full_path}")
 
+            self._displayed_path = full_path
             self._add_to_history_ui(full_path, image)
 
         except Exception as e:
@@ -348,13 +354,60 @@ class AIArtApp(ctk.CTk):
                                 command=lambda p=file_path: self._load_from_history(p))
             btn.pack(pady=5)
 
+            # Sağ tık silme menüsü. Button-2 macOS içindir.
+            for tus in ("<Button-3>", "<Button-2>"):
+                btn.bind(tus,
+                         lambda e, p=file_path, b=btn: self._show_history_menu(e, p, b),
+                         add="+")
+
         except Exception as e:
             print(f"Geçmiş ekleme hatası: {e}")
+
+    def _show_history_menu(self, event, file_path, button):
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Görseli sil",
+                         command=lambda: self._delete_from_history(file_path, button))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _delete_from_history(self, file_path, button):
+        ad = os.path.basename(file_path)
+        if not messagebox.askyesno(
+            "Görseli sil",
+            f"{ad}\n\nDosya diskten kalıcı olarak silinecek. Bu işlem geri alınamaz.\n"
+            "Silmek istiyor musunuz?"
+        ):
+            return
+
+        try:
+            os.remove(file_path)
+        except FileNotFoundError:
+            pass  # Dosya zaten yok; şeritten kaldırmaya devam et.
+        except OSError as e:
+            messagebox.showerror("Hata", f"Dosya silinemedi: {e}")
+            return
+
+        button.destroy()
+
+        # Silinen görsel ekranda duruyorsa önizlemeyi de temizle.
+        if self._displayed_path == file_path:
+            self._clear_preview()
+
+        self.status_lbl.configure(text="Görsel silindi", text_color="gray")
+
+    def _clear_preview(self):
+        self.generated_image = None
+        self._displayed_path = None
+        self.image_display.configure(image=None, text="Görsel Bekleniyor...")
+        self.save_btn.configure(state="disabled")
 
     def _load_from_history(self, file_path):
         try:
             img = Image.open(file_path)
             self.generated_image = img
+            self._displayed_path = file_path
             self._display_image(img)
             self.save_btn.configure(state="normal")
             self.status_lbl.configure(text="Geçmişten Yüklendi", text_color="cyan")

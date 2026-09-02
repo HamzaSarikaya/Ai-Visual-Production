@@ -121,6 +121,136 @@ class GecmisYuklemeTest(ArayuzTestTemeli):
         self.assertEqual(self.app.status_lbl.cget("text"), "Geçmişten Yüklendi")
 
 
+class GecmistenSilmeTest(ArayuzTestTemeli):
+    def _ilk_dugme_ve_yol(self):
+        dugme = self.app.history_frame.winfo_children()[0]
+        # Şeritteki sıralama en eskiden en yeniye; ilk dosya listedeki ilk isim.
+        yol = os.path.join(self.klasor, self.GECMIS_DOSYALARI[0])
+        return dugme, yol
+
+    def test_onay_verilirse_dosya_siliniyor(self):
+        dugme, yol = self._ilk_dugme_ve_yol()
+        once = len(self.app.history_frame.winfo_children())
+
+        with mock.patch.object(self.main.messagebox, "askyesno", return_value=True):
+            self.app._delete_from_history(yol, dugme)
+        self._pompala(5)
+
+        self.assertFalse(os.path.exists(yol), "dosya diskten silinmedi")
+        self.assertEqual(len(self.app.history_frame.winfo_children()), once - 1)
+        self.assertEqual(self.app.status_lbl.cget("text"), "Görsel silindi")
+
+    def test_onay_verilmezse_hicbir_sey_olmuyor(self):
+        dugme, yol = self._ilk_dugme_ve_yol()
+        once = len(self.app.history_frame.winfo_children())
+
+        with mock.patch.object(self.main.messagebox, "askyesno", return_value=False):
+            self.app._delete_from_history(yol, dugme)
+        self._pompala(3)
+
+        self.assertTrue(os.path.exists(yol), "onay verilmeden dosya silindi")
+        self.assertEqual(len(self.app.history_frame.winfo_children()), once)
+
+    def test_silme_her_zaman_onay_soruyor(self):
+        dugme, yol = self._ilk_dugme_ve_yol()
+        with mock.patch.object(self.main.messagebox, "askyesno", return_value=False) as sor:
+            self.app._delete_from_history(yol, dugme)
+        sor.assert_called_once()
+
+    def test_ekrandaki_gorsel_silinirse_onizleme_temizleniyor(self):
+        dugme, yol = self._ilk_dugme_ve_yol()
+        self.app._load_from_history(yol)
+        self._pompala(3)
+        self.assertEqual(self.app._displayed_path, yol)
+        self.assertEqual(self.app.save_btn.cget("state"), "normal")
+
+        with mock.patch.object(self.main.messagebox, "askyesno", return_value=True):
+            self.app._delete_from_history(yol, dugme)
+        self._pompala(3)
+
+        self.assertIsNone(self.app.generated_image)
+        self.assertIsNone(self.app._displayed_path)
+        self.assertEqual(self.app.save_btn.cget("state"), "disabled")
+        self.assertEqual(self.app.image_display.cget("text"), "Görsel Bekleniyor...")
+
+    def test_baska_gorsel_ekrandayken_onizleme_korunuyor(self):
+        dugmeler = self.app.history_frame.winfo_children()
+        acik_yol = os.path.join(self.klasor, self.GECMIS_DOSYALARI[1])
+        self.app._load_from_history(acik_yol)
+        self._pompala(3)
+
+        silinecek = os.path.join(self.klasor, self.GECMIS_DOSYALARI[0])
+        with mock.patch.object(self.main.messagebox, "askyesno", return_value=True):
+            self.app._delete_from_history(silinecek, dugmeler[0])
+        self._pompala(3)
+
+        self.assertEqual(self.app._displayed_path, acik_yol)
+        self.assertIsNotNone(self.app.generated_image)
+        self.assertEqual(self.app.save_btn.cget("state"), "normal")
+
+    def test_dosya_zaten_yoksa_serit_yine_temizleniyor(self):
+        dugme, yol = self._ilk_dugme_ve_yol()
+        os.remove(yol)   # dosya arayüz açıkken dışarıdan silinmiş olsun
+        once = len(self.app.history_frame.winfo_children())
+
+        with mock.patch.object(self.main.messagebox, "askyesno", return_value=True), \
+             mock.patch.object(self.main.messagebox, "showerror") as hata:
+            self.app._delete_from_history(yol, dugme)
+        self._pompala(3)
+
+        self.assertFalse(hata.called, "olmayan dosya için hata kutusu çıktı")
+        self.assertEqual(len(self.app.history_frame.winfo_children()), once - 1)
+
+    def test_silinemeyen_dosyada_hata_gosteriliyor(self):
+        dugme, yol = self._ilk_dugme_ve_yol()
+        once = len(self.app.history_frame.winfo_children())
+
+        with mock.patch.object(self.main.messagebox, "askyesno", return_value=True), \
+             mock.patch.object(self.main.os, "remove", side_effect=OSError("dosya kilitli")), \
+             mock.patch.object(self.main.messagebox, "showerror") as hata:
+            self.app._delete_from_history(yol, dugme)
+        self._pompala(3)
+
+        self.assertTrue(hata.called, "silme başarısızken kullanıcı uyarılmadı")
+        # Silinemediyse şeritten de kaldırılmamalı.
+        self.assertEqual(len(self.app.history_frame.winfo_children()), once)
+
+    def test_sag_tik_silme_menusunu_tetikliyor(self):
+        # Diğer testler _delete_from_history'yi doğrudan çağırıyor; bu test
+        # asıl kırılgan yeri, yani olay bağlantısının kurulduğunu doğruluyor.
+        dugme, yol = self._ilk_dugme_ve_yol()
+        cagrilar = []
+        self.app._show_history_menu = (
+            lambda event, file_path, button: cagrilar.append((file_path, button))
+        )
+
+        for hedef in [dugme] + list(dugme.winfo_children()):
+            try:
+                hedef.event_generate("<Button-3>", x=5, y=5)
+            except Exception:
+                pass
+            self._pompala(1)
+
+        self.assertTrue(cagrilar, "sağ tık hiçbir bileşende menüyü tetiklemedi")
+        self.assertEqual(cagrilar[0][0], yol)
+        self.assertIs(cagrilar[0][1], dugme)
+
+    def test_silinen_dosya_yeniden_acilista_gelmiyor(self):
+        dugme, yol = self._ilk_dugme_ve_yol()
+        with mock.patch.object(self.main.messagebox, "askyesno", return_value=True):
+            self.app._delete_from_history(yol, dugme)
+        self._pompala(3)
+
+        # Şeridi sıfırdan yükle: silinen dosya artık listede olmamalı
+        for cocuk in self.app.history_frame.winfo_children():
+            cocuk.destroy()
+        self.app._load_existing_history()
+        self._pompala(20)
+
+        self.assertEqual(len(self.app.history_frame.winfo_children()),
+                         len(self.GECMIS_DOSYALARI) - 1)
+
+
 class KucukResimTest(ArayuzTestTemeli):
     def test_kare_olmayan_gorselin_orani_korunuyor(self):
         yol = os.path.join(self.klasor, self.GECMIS_DOSYALARI[0])
