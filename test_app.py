@@ -262,7 +262,7 @@ class ModelSecimiTest(ArayuzTestTemeli):
         self.app._change_model("Hugging Face")
         self.assertIsInstance(self.app.current_generator, self.main.HuggingFaceGenerator)
 
-        self.app._change_model("OpenAI DALL-E 3")
+        self.app._change_model("OpenAI")
         self.assertIsInstance(self.app.current_generator, self.main.OpenAIGenerator)
 
 

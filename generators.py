@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 import os
@@ -13,6 +14,14 @@ DOWNLOAD_TIMEOUT = 60
 # Govdeyi parca parca okuyoruz ki iptal bayragi arada kontrol edilebilsin.
 CHUNK_SIZE = 64 * 1024
 
+# OpenAI dall-e-3'u kaldirdi ("The model 'dall-e-3' does not exist"), yerine
+# gpt-image ailesi geldi. Model OPENAI_MODEL ile degistirilebilir.
+DEFAULT_OPENAI_MODEL = "gpt-image-1"
+
+# hf-inference saglayicisi FLUX.1-dev'i artik servis etmiyor (HTTP 410).
+# Bu model o saglayicida calisiyor ve canli olarak dogrulandi.
+DEFAULT_HF_MODEL = "stabilityai/stable-diffusion-3-medium-diffusers"
+
 
 class GenerationCancelled(Exception):
     """Kullanici uretimi iptal ettiginde atilir; hata kutusu gosterilmez."""
@@ -24,7 +33,7 @@ def _iptal_kontrol(cancel_event):
 
 
 def _boyut_ayikla(size):
-    """'1792x1024' -> (1792, 1024). Cozumlenemezse (None, None)."""
+    """'1536x1024' -> (1536, 1024). Cozumlenemezse (None, None)."""
     try:
         genislik, yukseklik = str(size).lower().split("x")
         return int(genislik), int(yukseklik)
@@ -52,7 +61,7 @@ class ImageGeneratorStrategy(ABC):
 class HuggingFaceGenerator(ImageGeneratorStrategy):
     def __init__(self, model_id: str = None):
         self.api_key = os.getenv("HF_API_KEY")
-        model_id = model_id or os.getenv("HF_MODEL_ID", "black-forest-labs/FLUX.1-dev")
+        model_id = model_id or os.getenv("HF_MODEL_ID", DEFAULT_HF_MODEL)
         base_url = os.getenv("HF_API_URL", "https://router.huggingface.co/hf-inference/models")
         self.api_url = f"{base_url.rstrip('/')}/{model_id}"
 
@@ -60,7 +69,7 @@ class HuggingFaceGenerator(ImageGeneratorStrategy):
         if not self.api_key:
             raise ValueError(
                 "HF_API_KEY tanimli degil. .env dosyasina Hugging Face anahtarinizi ekleyin "
-                "veya model olarak OpenAI DALL-E 3'u secin."
+                "veya model olarak OpenAI'i secin."
             )
 
         _iptal_kontrol(cancel_event)
@@ -101,8 +110,10 @@ class HuggingFaceGenerator(ImageGeneratorStrategy):
 
 
 class OpenAIGenerator(ImageGeneratorStrategy):
-    def __init__(self):
+    def __init__(self, model: str = None):
         self.api_key = os.getenv("OPENAI_API_KEY")
+        self.model = model or os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
+        self.quality = os.getenv("OPENAI_IMAGE_QUALITY", "medium")
         self.url = "https://api.openai.com/v1/images/generations"
 
     def generate(self, prompt: str, size: str = "1024x1024", cancel_event=None) -> Image.Image:
@@ -114,6 +125,10 @@ class OpenAIGenerator(ImageGeneratorStrategy):
 
         _iptal_kontrol(cancel_event)
 
+        govde = {"model": self.model, "prompt": prompt, "n": 1, "size": size}
+        if self.quality:
+            govde["quality"] = self.quality
+
         with requests.Session() as oturum:
             try:
                 response = oturum.post(
@@ -122,7 +137,7 @@ class OpenAIGenerator(ImageGeneratorStrategy):
                         "Content-Type": "application/json",
                         "Authorization": f"Bearer {self.api_key}",
                     },
-                    json={"model": "dall-e-3", "prompt": prompt, "n": 1, "size": size},
+                    json=govde,
                     timeout=GENERATION_TIMEOUT,
                 )
 
@@ -130,15 +145,24 @@ class OpenAIGenerator(ImageGeneratorStrategy):
                     raise RuntimeError(f"OpenAI hatasi: {_extract_error(response)}")
 
                 try:
-                    image_url = response.json()["data"][0]["url"]
+                    kayit = response.json()["data"][0]
                 except (ValueError, KeyError, IndexError) as e:
                     raise RuntimeError("OpenAI cevabi beklenmedik formatta.") from e
 
                 _iptal_kontrol(cancel_event)
 
-                img_response = oturum.get(image_url, timeout=DOWNLOAD_TIMEOUT, stream=True)
-                img_response.raise_for_status()
-                icerik = self._govde_oku(img_response, cancel_event)
+                # gpt-image ailesi govdeyi base64 doner; dall-e surumleri URL
+                # donuyordu. Ikisi de desteklensin.
+                if kayit.get("b64_json"):
+                    icerik = base64.b64decode(kayit["b64_json"])
+                elif kayit.get("url"):
+                    img_response = oturum.get(kayit["url"], timeout=DOWNLOAD_TIMEOUT, stream=True)
+                    img_response.raise_for_status()
+                    icerik = self._govde_oku(img_response, cancel_event)
+                else:
+                    raise RuntimeError(
+                        "OpenAI cevabinda ne b64_json ne url alani var."
+                    )
 
             except requests.exceptions.RequestException as e:
                 raise ConnectionError(f"Uretilen gorsel indirilemedi: {e}") from e

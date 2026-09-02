@@ -19,7 +19,8 @@ load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# DALL-E 3'ün kabul ettiği en uzun açıklama.
+# Uygulama düzeyinde temkinli bir üst sınır. Sağlayıcıların kendi sınırları
+# bundan yüksek, ama bu uzunlukta bir açıklama zaten kullanıcı hatasıdır.
 MAX_PROMPT_LENGTH = 4000
 
 # Açılışta geçmiş şeridine geri yüklenecek en fazla görsel sayısı.
@@ -62,10 +63,12 @@ class AIArtApp(ctk.CTk):
             "Cyberpunk": ", cyberpunk style, neon lights, futuristic, highly detailed, digital painting"
         }
 
+        # gpt-image-1'in kabul ettiği boyutlar. Eski 1792x1024 / 1024x1792
+        # değerleri DALL-E 3'e aitti ve artık reddediliyor.
         self.sizes = {
             "Kare (1024x1024)": "1024x1024",
-            "Geniş/Yatay (1792x1024)": "1792x1024",
-            "Dikey/Telefon (1024x1792)": "1024x1792"
+            "Geniş/Yatay (1536x1024)": "1536x1024",
+            "Dikey/Telefon (1024x1536)": "1024x1536"
         }
 
         self.random_prompts = [
@@ -89,9 +92,9 @@ class AIArtApp(ctk.CTk):
         ctk.CTkLabel(self.sidebar, text="AI STUDIO", font=ctk.CTkFont(size=24, weight="bold")).pack(pady=(30,20))
 
         ctk.CTkLabel(self.sidebar, text="Model:", anchor="w", font=ctk.CTkFont(weight="bold")).pack(padx=20, pady=(10, 0), anchor="w")
-        self.model_menu = ctk.CTkOptionMenu(self.sidebar, values=["OpenAI DALL-E 3", "Hugging Face"], command=self._change_model)
+        self.model_menu = ctk.CTkOptionMenu(self.sidebar, values=["OpenAI", "Hugging Face"], command=self._change_model)
         self.model_menu.pack(padx=20, pady=5)
-        self.model_menu.set("OpenAI DALL-E 3")
+        self.model_menu.set("OpenAI")
 
         ctk.CTkLabel(self.sidebar, text="Stil:", anchor="w", font=ctk.CTkFont(weight="bold")).pack(padx=20, pady=(15, 0), anchor="w")
         self.style_menu = ctk.CTkOptionMenu(self.sidebar, values=list(self.styles.keys()))

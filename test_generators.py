@@ -4,6 +4,7 @@ Ağa çıkmaz, arayüz açmaz: requests.Session katmanı sahte nesnelerle deği�
 Çalıştırmak için:  python -m unittest -v
 """
 
+import base64
 import io
 import json
 import os
@@ -125,8 +126,19 @@ class OpenAIGeneratorTest(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
 
+    @staticmethod
+    def _b64_cevap(size=(8, 8)):
+        """gpt-image ailesinin döndürdüğü biçim: gövde base64 olarak gelir."""
+        b64 = base64.b64encode(png_bytes(size)).decode("ascii")
+        return SahteCevap(200, {"data": [{"b64_json": b64}]})
+
+    @staticmethod
+    def _url_cevap():
+        """Eski dall-e sürümlerinin döndürdüğü biçim: indirilecek bir URL."""
+        return SahteCevap(200, {"data": [{"url": "https://ornek/g.png"}]})
+
     def _oturum(self, **kwargs):
-        kwargs.setdefault("post_cevap", SahteCevap(200, {"data": [{"url": "https://ornek/g.png"}]}))
+        kwargs.setdefault("post_cevap", self._b64_cevap())
         kwargs.setdefault("get_cevap", SahteCevap(200, content=png_bytes()))
         return SahteOturum(**kwargs)
 
@@ -137,27 +149,57 @@ class OpenAIGeneratorTest(unittest.TestCase):
             uretici.generate("kedi")
         self.assertIn("OPENAI_API_KEY", str(ctx.exception))
 
-    def test_basarili_uretim_gorsel_dondurur(self):
-        oturum = self._oturum(get_cevap=SahteCevap(200, content=png_bytes((16, 16))))
+    def test_base64_cevaptan_gorsel_olusturuluyor(self):
+        oturum = self._oturum(post_cevap=self._b64_cevap((16, 16)))
         with oturum_yamasi(oturum):
             gorsel = OpenAIGenerator().generate("kedi", "1024x1024")
         self.assertIsInstance(gorsel, Image.Image)
         self.assertEqual(gorsel.size, (16, 16))
+        # base64 geldiğinde ayrıca indirme yapılmamalı
+        self.assertIsNone(oturum.get_cagri)
+
+    def test_url_cevabi_da_destekleniyor(self):
+        # Eski dall-e sürümleri URL dönüyordu; geriye dönük uyumluluk.
+        oturum = self._oturum(post_cevap=self._url_cevap(),
+                              get_cevap=SahteCevap(200, content=png_bytes((24, 24))))
+        with oturum_yamasi(oturum):
+            gorsel = OpenAIGenerator().generate("kedi")
+        self.assertEqual(gorsel.size, (24, 24))
+        self.assertIsNotNone(oturum.get_cagri)
+
+    def test_ne_b64_ne_url_varsa_anlasilir_hata(self):
+        oturum = self._oturum(post_cevap=SahteCevap(200, {"data": [{"beklenmeyen": 1}]}))
+        with oturum_yamasi(oturum):
+            with self.assertRaises(RuntimeError) as ctx:
+                OpenAIGenerator().generate("kedi")
+        self.assertIn("b64_json", str(ctx.exception))
 
     def test_istek_govdesi_ve_zaman_asimi_dogru(self):
         oturum = self._oturum()
         with oturum_yamasi(oturum):
-            OpenAIGenerator().generate("kedi", "1792x1024")
+            OpenAIGenerator().generate("kedi", "1536x1024")
 
         govde = oturum.post_cagri[1]["json"]
-        self.assertEqual(govde["model"], "dall-e-3")
+        # dall-e-3 kaldirildi; varsayilan artik gpt-image ailesinden.
+        self.assertEqual(govde["model"], generators.DEFAULT_OPENAI_MODEL)
+        self.assertNotEqual(govde["model"], "dall-e-3")
         self.assertEqual(govde["prompt"], "kedi")
-        self.assertEqual(govde["size"], "1792x1024")
+        self.assertEqual(govde["size"], "1536x1024")
         self.assertEqual(govde["n"], 1)
 
         # Zaman aşımı olmadan uygulama sonsuza kadar donabiliyordu.
         self.assertEqual(oturum.post_cagri[1]["timeout"], generators.GENERATION_TIMEOUT)
-        self.assertEqual(oturum.get_cagri[1]["timeout"], generators.DOWNLOAD_TIMEOUT)
+
+    def test_model_ve_kalite_ortamdan_okunuyor(self):
+        ortam = {"OPENAI_API_KEY": "x", "OPENAI_MODEL": "gpt-image-1-mini",
+                 "OPENAI_IMAGE_QUALITY": "low"}
+        oturum = self._oturum()
+        with mock.patch.dict(os.environ, ortam, clear=True), oturum_yamasi(oturum):
+            OpenAIGenerator().generate("kedi")
+
+        govde = oturum.post_cagri[1]["json"]
+        self.assertEqual(govde["model"], "gpt-image-1-mini")
+        self.assertEqual(govde["quality"], "low")
 
     def test_oturum_her_durumda_kapatiliyor(self):
         oturum = self._oturum()
@@ -192,7 +234,7 @@ class OpenAIGeneratorTest(unittest.TestCase):
                 OpenAIGenerator().generate("kedi")
 
     def test_gorsel_indirilemezse_baglanti_hatasi(self):
-        oturum = self._oturum(get_cevap=SahteCevap(500))
+        oturum = self._oturum(post_cevap=self._url_cevap(), get_cevap=SahteCevap(500))
         with oturum_yamasi(oturum):
             with self.assertRaises(ConnectionError):
                 OpenAIGenerator().generate("kedi")
@@ -215,17 +257,19 @@ class OpenAIGeneratorTest(unittest.TestCase):
                 bayrak.set()          # indirme sürerken kullanıcı iptal etti
                 yield self.content[10:]
 
-        oturum = self._oturum(get_cevap=IptalTetikleyen(200, content=png_bytes((64, 64))))
+        oturum = self._oturum(post_cevap=self._url_cevap(),
+                              get_cevap=IptalTetikleyen(200, content=png_bytes((64, 64))))
         with oturum_yamasi(oturum):
             with self.assertRaises(GenerationCancelled):
                 OpenAIGenerator().generate("kedi", "1024x1024", bayrak)
 
     def test_indirme_stream_modunda_yapiliyor(self):
         # Parca parca okuyabilmek icin stream=True sart; olmazsa iptal edilemez.
-        oturum = self._oturum()
+        oturum = self._oturum(post_cevap=self._url_cevap())
         with oturum_yamasi(oturum):
             OpenAIGenerator().generate("kedi")
         self.assertTrue(oturum.get_cagri[1]["stream"])
+        self.assertEqual(oturum.get_cagri[1]["timeout"], generators.DOWNLOAD_TIMEOUT)
 
 
 class HuggingFaceGeneratorTest(unittest.TestCase):
