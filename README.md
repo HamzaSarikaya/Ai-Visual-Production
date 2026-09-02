@@ -1,12 +1,12 @@
 # AI Görsel İstasyonu
 
-Metin açıklamasından yapay zekâ ile görsel üreten bir masaüstü uygulaması. Kullanıcı ne çizilmesini istediğini Türkçe ya da İngilizce yazıyor, hazır stil şablonlarından birini (gerçekçi fotoğraf, sinematik, 3D render, anime, cyberpunk) ve çıktı oranını seçiyor; uygulama isteği OpenAI DALL-E 3 API'sine gönderip dönen görseli ekranda gösteriyor, aynı anda diske kaydediyor ve oturum boyunca üretilen görselleri yan paneldeki geçmiş şeridinde saklıyor. Görsel üretimi arka plan thread'inde çalıştığı için istek sürerken arayüz donmuyor. Üretici katmanı Strategy deseniyle soyutlandığından yeni bir sağlayıcı eklemek tek bir sınıf yazmakla mümkün.
+Metin açıklamasından yapay zekâ ile görsel üreten bir masaüstü uygulaması. Kullanıcı ne çizilmesini istediğini Türkçe ya da İngilizce yazıyor, hazır stil şablonlarından birini (gerçekçi fotoğraf, sinematik, 3D render, anime, cyberpunk) ve çıktı oranını seçiyor; uygulama isteği OpenAI DALL-E 3 API'sine gönderip dönen görseli ekranda gösteriyor, aynı anda diske kaydediyor ve üretilenleri yan paneldeki geçmiş şeridinde topluyor — bu şerit uygulama kapatılıp açıldığında da kayıt klasöründen yeniden doluyor. Görsel üretimi arka plan thread'inde çalıştığı için istek sürerken arayüz donmuyor, üretim istenirse iptal edilebiliyor. Üretici katmanı Strategy deseniyle soyutlandığından yeni bir sağlayıcı eklemek tek bir sınıf yazmakla mümkün.
 
 ## Uygulama
 
 ![Uygulama arayüzü](ornekler/uygulama-arayuzu.png)
 
-Solda model, stil ve boyut seçimi; ortada üretilen görselin önizlemesi; sağda o oturumda üretilenlerin geçmiş şeridi.
+Solda model, stil ve boyut seçimi; ortada üretilen görselin önizlemesi; sağda kayıt klasöründen yüklenen geçmiş şeridi.
 
 ## Örnek çıktılar
 
@@ -83,6 +83,7 @@ Windows'ta `copy .env.example .env`. Ardından `.env` dosyasını açıp anahtar
 | `HF_API_KEY` | Hayır | Yalnızca Hugging Face modeli seçilirse kullanılır. |
 | `OUTPUT_DIR` | Hayır | Görsellerin kaydedileceği klasör. Boş bırakılırsa proje içindeki `fotolar` klasörü kullanılır. |
 | `HF_MODEL_ID` | Hayır | Hugging Face model kimliği. Varsayılan: `black-forest-labs/FLUX.1-dev` |
+| `HF_API_URL` | Hayır | Hugging Face uç noktasının kök adresi. Varsayılan: `https://router.huggingface.co/hf-inference/models` |
 
 `.env` dosyası `.gitignore` içinde olduğu için depoya gönderilmez.
 
@@ -115,10 +116,11 @@ python -m unittest -v
 
 ## Bilinen eksikler
 
-- **Hugging Face yolu doğrulanmadı.** Uç nokta, kapanmış olan `api-inference.huggingface.co` yerine güncel `router.huggingface.co` adresiyle değiştirildi; adresin ayakta olduğu doğrulandı (kimlik doğrulaması istiyor). Ancak elimde Hugging Face anahtarı olmadığı için uçtan uca bir üretim denenmedi. Adres ve model `HF_API_URL` / `HF_MODEL_ID` ile değiştirilebilir. OpenAI yolu birincil ve test edilmiş yoldur.
-- **İptal, süren HTTP isteğini durdurmuyor.** İstek arka planda tamamlanıyor, sonucu yok sayılıyor. Kullanıcı açısından fark etmiyor ama iptal edilen bir DALL-E 3 üretimi yine de ücretlendirilir.
+- **Hugging Face yolu uçtan uca denenmedi.** Kapanmış olan `api-inference.huggingface.co` adresi güncel `router.huggingface.co` adresiyle değiştirildi ve yeni adresin ayakta olduğu doğrulandı: DNS'te çözülüyor ve kimlik doğrulama istiyor. Ancak elde bir Hugging Face anahtarı olmadığı için gerçek bir üretim denenemedi. Adres ve model `HF_API_URL` / `HF_MODEL_ID` ile değiştirilebilir. Test edilmiş birincil yol OpenAI'dır.
+- **Hugging Face'te çıktı oranı seçilemiyor.** Bu API çözünürlük parametresi almadığından, model Hugging Face'e alındığında boyut menüsü kapanıyor ve görsel modelin kendi varsayılan boyutunda üretiliyor.
+- **İptal, süren isteği ağ seviyesinde durdurmuyor.** Arayüz anında serbest kalıyor ve gelen sonuç yok sayılıyor — görsel ne diske yazılıyor ne ekrana geliyor — ama istek arka planda tamamlanıyor. Bunun pratik sonucu şu: iptal ettiğiniz bir DALL-E 3 üretimi OpenAI tarafında yine de ücretlendirilir. Yanıt hiç gelmezse istek 180 saniyede zaman aşımına uğrar.
+- **Geçmiş şeridi kayıt klasörünün tamamına bakıyor.** Değiştirilme tarihine göre en yeni 20 PNG yükleniyor, dolayısıyla klasöre dışarıdan kopyalanan PNG'ler de geçmişte görünür.
 - **Arayüz için otomatik test yok.** Birim testleri üretici katmanını kapsıyor; arayüz elle test edildi.
-- **Geçmiş şeridi kayıt klasörünün tamamını okuyor.** Klasöre dışarıdan konan PNG'ler de geçmişte görünür.
 
 ## Lisans
 
