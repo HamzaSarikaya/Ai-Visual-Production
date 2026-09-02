@@ -1,6 +1,6 @@
 # AI Görsel İstasyonu
 
-Metin açıklamasından yapay zekâ ile görsel üreten bir masaüstü uygulaması. Kullanıcı ne çizilmesini istediğini Türkçe ya da İngilizce yazıyor, hazır stil şablonlarından birini (gerçekçi fotoğraf, sinematik, 3D render, anime, cyberpunk) ve çıktı oranını seçiyor; uygulama isteği OpenAI'ın görsel API'sine gönderip dönen görseli ekranda gösteriyor, aynı anda diske kaydediyor ve üretilenleri yan paneldeki geçmiş şeridinde topluyor — bu şerit uygulama kapatılıp açıldığında da kayıt klasöründen yeniden doluyor. Görsel üretimi arka plan thread'inde çalıştığı için istek sürerken arayüz donmuyor, üretim istenirse iptal edilebiliyor. Üretici katmanı Strategy deseniyle soyutlandığından ikinci sağlayıcı (Hugging Face) tek bir sınıfla eklenmiş durumda.
+Metin açıklamasından yapay zekâ ile görsel üreten bir masaüstü uygulaması. Kullanıcı ne çizilmesini istediğini yazıyor (OpenAI sağlayıcısı Türkçe anlıyor), hazır stil şablonlarından birini (gerçekçi fotoğraf, sinematik, 3D render, anime, cyberpunk) ve çıktı oranını seçiyor; uygulama isteği OpenAI'ın görsel API'sine gönderip dönen görseli ekranda gösteriyor, aynı anda diske kaydediyor ve üretilenleri yan paneldeki geçmiş şeridinde topluyor — bu şerit uygulama kapatılıp açıldığında da kayıt klasöründen yeniden doluyor. Görsel üretimi arka plan thread'inde çalıştığı için istek sürerken arayüz donmuyor, üretim istenirse iptal edilebiliyor. Üretici katmanı Strategy deseniyle soyutlandığından ikinci sağlayıcı (Hugging Face) tek bir sınıfla eklenmiş durumda.
 
 ## Uygulama
 
@@ -22,6 +22,10 @@ Solda model, stil ve boyut seçimi; ortada üretilen görselin önizlemesi; sağ
 ![Çizim](ornekler/04-cizim-fil-karinca.png)
 
 *Anime / Çizim* stili, 1024x1024.
+
+![Hugging Face](ornekler/05-huggingface-agac-kasaba.png)
+
+Aynı *Sinematik Sahne* stili, bu kez **Hugging Face** sağlayıcısıyla (Stable Diffusion 3 Medium) — sağlayıcı değişse de stil talimatı aynı şekilde uygulanıyor.
 
 ## Kullanılan teknolojiler
 
@@ -111,7 +115,7 @@ OpenAI görsel üretimi ücretlidir; her görsel hesabınızdan ücretlendirilir
 
 ## Testler
 
-Toplam 52 test, iki dosyada. Hiçbiri ağa çıkmaz ve API anahtarı gerektirmez; HTTP katmanı sahte nesnelerle değiştirilir.
+Toplam 61 test, iki dosyada. Hiçbiri ağa çıkmaz ve API anahtarı gerektirmez; HTTP katmanı sahte nesnelerle değiştirilir.
 
 ```bash
 python -m unittest -v
@@ -123,6 +127,17 @@ python -m unittest -v
 | `test_app.py` | Arayüz: geçmiş yükleme ve filtreleme, küçük resim oranı, prompt doğrulama, iptal akışı, kayıt |
 
 `test_app.py` gerçek bir pencere açtığı için ekran gerektirir; başsız bir ortamda (örneğin ekransız bir CI sunucusu) bu testler otomatik olarak atlanır. Her test kendi geçici kayıt klasöründe çalışır, projedeki `fotolar` klasörüne dokunmaz.
+
+## Prompt tasarımı
+
+Stil şablonları başta `photorealistic, 8k resolution, highly detailed, masterpiece, unreal engine 5` gibi anahtar kelime yığınlarıydı. Bu yaklaşım Stable Diffusion 1.x / Midjourney dönemine ait: o modeller CLIP ile etiket eşleştirdiği için "kalite artırıcı" kelimeler işe yarıyordu. `gpt-image-1` ve Stable Diffusion 3 ise talimatı okuyup uyguluyor; bu etiketler artık ölçülebilir bir katkı sağlamıyor, sadece prompt bütçesini yiyor.
+
+Şablonlar bu yüzden düz İngilizce talimatlara çevrildi — ışığı, objektifi, renk paletini ve kompozisyonu açıkça tarif ediyorlar. İki somut değişiklik:
+
+- **Pozlama açıkça dengeleniyor.** Yalnızca `cinematic, dramatic lighting, atmospheric` denince modeller sahneyi aşırı karartıyordu. Şablonlarda artık "shadows stay readable", "keep the image well exposed", "blacks that still hold detail" gibi ifadeler var.
+- **Örnek promptlar yalnızca sahneyi anlatıyor.** Eskiden içlerinde `pixar tarzı`, `sinematik aydınlatma` gibi ekler vardı ve menüden seçilen stille çakışıyordu. Görünüm kararı artık tamamen stil menüsüne ait.
+
+`test_app.py` içindeki testler eski etiketlerin geri sızmasını ve pozlama ifadesinin kaybolmasını engelliyor.
 
 ## Sağlayıcı notu
 
@@ -136,6 +151,7 @@ Her iki yol da canlı olarak test edildi ve görsel üretmesi doğrulandı.
 ## Bilinen eksikler
 
 - **İptal, yanıt beklenirken ağ seviyesinde kesilemiyor.** İptalin indirme aşamasını gerçekten yarıda kestiği ölçüldü: yavaş yanıt veren yerel bir sunucuya karşı bağlantı, bayrak kaldırıldıktan ~1,6 saniye sonra bırakıldı. Ancak istek henüz *yanıt beklerken* iptal edilirse bu bekleme kesilemiyor — `requests` ile yapılan bloklayıcı bir çağrı başka bir thread'den güvenilir biçimde durdurulamıyor (`Session.close()` denendi, Windows'ta bloke soketi çözmedi). Bu durumda arayüz anında serbest kalıyor ve sonuç geldiğinde yok sayılıyor, ama istek arka planda sürüyor. Pratik sonucu: iptal ettiğiniz bir üretim sağlayıcı tarafında yine de ücretlendirilir. Yanıt hiç gelmezse istek 180 saniyede zaman aşımına uğrar.
+- **Hugging Face sağlayıcısı Türkçe anlamıyor.** Stable Diffusion 3'ün metin kodlayıcısı Türkçe eğitilmediği için Türkçe bir açıklama sahneyle ilgisiz görsel üretiyor; aynı sahne İngilizce yazıldığında doğru sonuç geliyor. Bu ikisi yan yana test edildi. Arayüz, Hugging Face seçildiğinde model menüsünün altında uyarı gösteriyor. OpenAI sağlayıcısı Türkçe açıklamaları sorunsuz anlıyor.
 - **Hugging Face tarafında yalnızca `hf-inference` sağlayıcısı destekleniyor.** FLUX gibi popüler modeller bugün `fal-ai`, `replicate` veya `wavespeed` üzerinden sunuluyor ve bu sağlayıcıların istek biçimi farklı. Adres `HF_API_URL` ile değiştirilebilir ama gövde biçimi uyarlanmadan çalışmaz.
 - **Geçmişten silme yok.** Şeritteki bir görseli arayüzden kaldırmak mümkün değil; dosyayı kayıt klasöründen elle silmek gerekiyor.
 

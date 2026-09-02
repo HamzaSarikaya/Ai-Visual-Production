@@ -15,9 +15,11 @@ except ImportError as e:
     print(f"KRİTİK HATA: generators.py dosyası bulunamadı! {e}")
     exit()
 
-load_dotenv()
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Yolu açıkça veriyoruz: argümansız load_dotenv() dosyayı çalışma dizinine göre
+# arıyor, bu da uygulama başka bir klasörden başlatılınca .env'i ıskalıyor.
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # Uygulama düzeyinde temkinli bir üst sınır. Sağlayıcıların kendi sınırları
 # bundan yüksek, ama bu uzunlukta bir açıklama zaten kullanıcı hatasıdır.
@@ -54,13 +56,42 @@ class AIArtApp(ctk.CTk):
         self._cancel_event = threading.Event()
         self._pending_history = []
 
+        # Stil ekleri bilinçli olarak düz İngilizce cümleler. gpt-image-1 ve SD3
+        # talimatı okuyup uyguluyor; "8k, masterpiece, unreal engine 5" gibi eski
+        # anahtar kelime yığınları bu modellerde işe yaramıyor, sadece yer kaplıyor.
+        # Her ekte pozlama açıkça dengeleniyor: yalnızca "cinematic/dramatic"
+        # denince modeller sahneyi aşırı karartıyor.
         self.styles = {
             "Standart": "",
-            "Gerçekçi Fotoğraf": ", photorealistic, 8k resolution, highly detailed, sharp focus, cinematic lighting, masterpiece",
-            "Sinematik Sahne": ", cinematic movie scene, dramatic lighting, atmospheric, highly detailed, 8k, movie still",
-            "3D Render (Oyun)": ", 3d render, unreal engine 5, intricate details, smooth textures, global illumination, 8k",
-            "Anime / Çizim": ", anime style, studio Ghibli inspired, vibrant colors, high quality illustration",
-            "Cyberpunk": ", cyberpunk style, neon lights, futuristic, highly detailed, digital painting"
+            "Gerçekçi Fotoğraf": (
+                "Render this as a photograph taken with a full-frame camera and a 50mm lens: "
+                "shallow depth of field, soft natural daylight, balanced exposure that keeps "
+                "detail in both highlights and shadows, lifelike skin and surface texture, "
+                "natural unsaturated colour, no digital-art look."
+            ),
+            "Sinematik Sahne": (
+                "Render this as a still frame from a feature film: wide anamorphic framing, "
+                "a clear key light softened by fill so shadows stay readable, restrained "
+                "teal-and-amber colour grade, fine film grain, the subject in sharp focus "
+                "against a gently blurred background. Keep the image well exposed, not murky."
+            ),
+            "3D Render (Oyun)": (
+                "Render this as a polished stylised 3D animation frame: appealing rounded "
+                "shapes, clean materials with soft subsurface scattering, bright even key "
+                "light plus soft global illumination, saturated but harmonious colours, "
+                "the look of a modern animated feature."
+            ),
+            "Anime / Çizim": (
+                "Render this as hand-drawn animation art: confident clean linework, flat cel "
+                "shading with a few soft gradients, warm saturated palette, a painted "
+                "background with visible brushwork and a bright airy sky."
+            ),
+            "Cyberpunk": (
+                "Render this as a cyberpunk night scene: rain-slick streets reflecting "
+                "saturated magenta and cyan neon signage, layered atmospheric haze lit from "
+                "within, visible practical light sources, deep blacks that still hold detail "
+                "rather than crushing to flat black."
+            )
         }
 
         # gpt-image-1'in kabul ettiği boyutlar. Eski 1792x1024 / 1024x1792
@@ -71,12 +102,18 @@ class AIArtApp(ctk.CTk):
             "Dikey/Telefon (1024x1536)": "1024x1536"
         }
 
+        # Örnek promptlar bilinçli olarak yalnızca SAHNEYİ anlatıyor; görünüm
+        # kararını stil menüsü veriyor. Eskiden buraya da "sinematik aydınlatma",
+        # "pixar tarzı" gibi ekler yazılıydı ve seçilen stille çakışıyordu.
         self.random_prompts = [
-            "Dev bir ağacın üzerine kurulmuş fütüristik bir şehir, sinematik aydınlatma",
-            "İstanbul'da cyberpunk bir sokak yemeği satıcısı, neon ışıklar, gece",
-            "Yüzen bir ada üzerindeki ortaçağ kalesi",
-            "Bir serada bitkileri sulayan sevimli bir robot, pixar tarzı",
-            "Bir ormanda gizlenmiş antik bir tapınak, mistik atmosfer"
+            "Dev bir çınarın dallarına kurulmuş, asma köprülerle birbirine bağlı küçük bir şehir",
+            "Yağmur sonrası bir İstanbul sokağı; ıslak parke taşları, buharı tüten bir tezgâh",
+            "Bulutların arasında süzülen bir adanın tepesindeki taş kale, kenarından dökülen şelale",
+            "Bir serada fideleri sulayan, gözlerinden yumuşak ışık sızan küçük bir robot",
+            "Ormanda kalmış, kökler arasından yükselen yosun kaplı antik tapınak kapısı",
+            "Kar altındaki dağ kasabasında akşamüstü, pencerelerden sızan turuncu lamba ışığı",
+            "Eski bir kütüphanede tozlu ışık huzmelerinin içinde uyuyan tekir kedi",
+            "Çölde terk edilmiş bir tren istasyonu, raylarda büyümüş kuru otlar"
         ]
 
         self._setup_ui()
@@ -95,6 +132,12 @@ class AIArtApp(ctk.CTk):
         self.model_menu = ctk.CTkOptionMenu(self.sidebar, values=["OpenAI", "Hugging Face"], command=self._change_model)
         self.model_menu.pack(padx=20, pady=5)
         self.model_menu.set("OpenAI")
+
+        # Stable Diffusion Türkçe anlamıyor; kullanıcı bunu çıktıyı görmeden
+        # bilemez, o yüzden model seçilince uyarı gösteriliyor.
+        self.model_hint = ctk.CTkLabel(self.sidebar, text="", font=ctk.CTkFont(size=11),
+                                       text_color="#E67E22", wraplength=200, justify="left")
+        self.model_hint.pack(padx=20, pady=(2, 0))
 
         ctk.CTkLabel(self.sidebar, text="Stil:", anchor="w", font=ctk.CTkFont(weight="bold")).pack(padx=20, pady=(15, 0), anchor="w")
         self.style_menu = ctk.CTkOptionMenu(self.sidebar, values=list(self.styles.keys()))
@@ -139,8 +182,24 @@ class AIArtApp(ctk.CTk):
     def _change_model(self, choice):
         if choice == "Hugging Face":
             self.current_generator = HuggingFaceGenerator()
+            self.model_hint.configure(
+                text="Bu model Türkçe anlamıyor — açıklamayı İngilizce yazın."
+            )
         else:
             self.current_generator = OpenAIGenerator()
+            self.model_hint.configure(text="")
+
+    def _build_prompt(self, base_prompt):
+        """Kullanıcının açıklamasıyla stil talimatını tek bir metne birleştirir."""
+        style_suffix = self.styles.get(self.style_menu.get(), "").strip()
+        base_prompt = base_prompt.strip()
+        if not style_suffix:
+            return base_prompt
+
+        # Kullanıcı cümlesini noktayla kapatıp stil talimatını ayrı cümle olarak
+        # ekliyoruz; yoksa iki talimat birbirine yapışıp anlamı bozuyor.
+        govde = base_prompt.rstrip(" .,;:")
+        return f"{govde}. {style_suffix}"
 
     def _random_prompt(self):
         prompt = random.choice(self.random_prompts)
@@ -153,8 +212,7 @@ class AIArtApp(ctk.CTk):
             messagebox.showwarning("Uyarı", "Lütfen bir şeyler yazın.")
             return
 
-        style_suffix = self.styles.get(self.style_menu.get(), "")
-        final_prompt = base_prompt + style_suffix
+        final_prompt = self._build_prompt(base_prompt)
 
         if len(final_prompt) > MAX_PROMPT_LENGTH:
             fazla = len(final_prompt) - MAX_PROMPT_LENGTH

@@ -252,11 +252,81 @@ class BasariliUretimTest(ArayuzTestTemeli):
         self.assertTrue(self.main.HISTORY_FILE_PATTERN.match(os.path.basename(yeni)))
 
 
+class PromptOlusturmaTest(ArayuzTestTemeli):
+    def test_standart_stilde_ek_yok(self):
+        self.app.style_menu.set("Standart")
+        self.assertEqual(self.app._build_prompt("bir kedi"), "bir kedi")
+
+    def test_stil_ayri_cumle_olarak_ekleniyor(self):
+        self.app.style_menu.set("Gerçekçi Fotoğraf")
+        sonuc = self.app._build_prompt("bir kedi")
+        self.assertTrue(sonuc.startswith("bir kedi. "))
+        self.assertIn("50mm", sonuc)
+
+    def test_kullanici_noktasi_ciftlenmıyor(self):
+        self.app.style_menu.set("Sinematik Sahne")
+        sonuc = self.app._build_prompt("bir kedi.")
+        self.assertNotIn("..", sonuc)
+
+    def test_sondaki_noktalama_ve_bosluk_temizleniyor(self):
+        self.app.style_menu.set("Cyberpunk")
+        sonuc = self.app._build_prompt("bir kedi ,;  ")
+        self.assertTrue(sonuc.startswith("bir kedi. "))
+
+    def test_eski_booster_kelimeleri_geri_gelmesin(self):
+        # Bu kelimeler SD/Midjourney donemine ait "kalite artirici" etiketler;
+        # gpt-image-1 ve SD3'te ise yaramiyor, sadece prompt butcesini yiyor.
+        # "sharp focus" gibi ifadeler listede DEGIL: bir cumle icinde alan
+        # derinligini anlatiyorlarsa gecerli birer talimattir.
+        yasakli = ["8k", "4k", "masterpiece", "unreal engine", "highly detailed",
+                   "intricate details", "trending on artstation", "best quality",
+                   "ultra realistic", "award winning"]
+        for ad, ek in self.app.styles.items():
+            for kelime in yasakli:
+                self.assertNotIn(kelime, ek.lower(),
+                                 f"'{ad}' stilinde eski booster kelimesi var: {kelime}")
+
+    def test_stil_ekleri_pozlamayi_dengeliyor(self):
+        # Yalnizca "cinematic/dramatic" denince modeller sahneyi karartiyordu.
+        for ad in ["Gerçekçi Fotoğraf", "Sinematik Sahne", "Cyberpunk"]:
+            ek = self.app.styles[ad].lower()
+            self.assertTrue(
+                any(k in ek for k in ("balanced exposure", "well exposed", "hold detail")),
+                f"'{ad}' stilinde pozlama dengesi belirtilmemiş")
+
+    def test_en_uzun_kombinasyon_sinira_sigiyor(self):
+        en_uzun = max(self.app.styles.values(), key=len)
+        self.app.style_menu.set(
+            next(k for k, v in self.app.styles.items() if v == en_uzun))
+        sonuc = self.app._build_prompt("a" * 500)
+        self.assertLess(len(sonuc), self.main.MAX_PROMPT_LENGTH)
+
+    def test_ornek_promptlar_stil_ipucu_icermiyor(self):
+        # Ornek promptlar sadece sahneyi anlatmali; gorunumu stil menusu secer.
+        cakisan = ["pixar", "sinematik aydınlatma", "tarzı", "style"]
+        for p in self.app.random_prompts:
+            for kelime in cakisan:
+                self.assertNotIn(kelime, p.lower(),
+                                 f"örnek promptta stil ipucu var: {p}")
+
+
 class ModelSecimiTest(ArayuzTestTemeli):
     def test_hugging_face_secilince_boyut_menusu_acik_kaliyor(self):
         self.app._change_model("Hugging Face")
         self._pompala(3)
         self.assertEqual(self.app.size_menu.cget("state"), "normal")
+
+    def test_hugging_face_secilince_dil_uyarisi_cikiyor(self):
+        # Stable Diffusion Turkce anlamiyor; kullanici bunu ciktiyi gormeden bilemez.
+        self.assertEqual(self.app.model_hint.cget("text"), "")
+
+        self.app._change_model("Hugging Face")
+        self._pompala(3)
+        self.assertIn("İngilizce", self.app.model_hint.cget("text"))
+
+        self.app._change_model("OpenAI")
+        self._pompala(3)
+        self.assertEqual(self.app.model_hint.cget("text"), "")
 
     def test_model_degisince_uretici_degisiyor(self):
         self.app._change_model("Hugging Face")
